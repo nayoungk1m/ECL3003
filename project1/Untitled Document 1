@@ -1,0 +1,45 @@
+
+# Behavior Macro
+KEEPING_WAYPOINT = 0
+TASK1 = 1 # traffic light
+TASK2 = 2 # When the sign is detected
+# TASK2_SLOW = 3 # ACC
+TASK3 = 3 # avoiding obstacles
+TASK4 = 4 # straight, left, right
+
+# YOLO Classes Macro
+GO_LEFT = 0.0
+GO_RIGHT = 1.0
+GO_STRAIGHT = 2.0
+SIGN_SLOW = 3.0
+SIGN_STOP = 4.0
+TRAFFIC_GREEN = 5.0
+TRAFFIC_RED = 6.0
+VEHICLE = 7.0
+
+# Behavior flag
+is_go_left = False
+is_go_right = False
+is_go_straight = False
+is_sign_slow = False
+is_sign_stop = False
+is_traffic_green = False
+is_traffic_red = False
+is_vehicle = False
+
+# confidence threshold
+# TODO: need to change
+CONF_THRES = 0.5
+
+# driving constants
+MAX_STEER = 0.8
+MAX_SPEED = 0.5
+STEP_STEER = 0.2
+STEP_SPEED = 0.05
+
+
+avoid_state = {
+    "phase": 0,  # 0: 초기, 1: 회피 중, 2: 복귀 중, 3: 종료
+    "start_time": None,
+    "avoid_dir": 0  # -1: 좌, 1: 우
+}
