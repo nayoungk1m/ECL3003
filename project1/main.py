@@ -13,6 +13,8 @@ import torchvision
 import cv2
 from ctrl.base_ctrl import BaseController
 import threading
+from datetime import datetime
+
 
 import argparse
 args = argparse.ArgumentParser()
@@ -28,7 +30,6 @@ stream = args.stream
 # import pygame  # 
 from camera import Camera
 from ultralytics import YOLO
-
 
 # Behavior Macro
 KEEPING_WAYPOINT = 0
@@ -69,12 +70,14 @@ STEP_STEER = 0.2
 STEP_SPEED = 0.05
 MINIMUM_MOTOR_SPEED = 0.0
 MAX_MOTORINPUT = 0.7
-# bbox size macro
+default_forward_speed = 0.185
 
+
+# bbox size macro
 SIZE_TRAFFIC_LIGHT = 1500.0
-SIZE_SLOW_SIGN = 7500.0
+SIZE_SLOW_SIGN = 6750.0
 SIZE_STOP_SIGN = 7500.0
-SIZE_DIRECTION_SIGN = 7500.0
+SIZE_DIRECTION_SIGN = 6750.0
 
 
 
@@ -88,6 +91,10 @@ is_traffic_green = False
 is_traffic_red = False
 is_vehicle = False
 keep_mode = False
+turning_mode = False
+
+x = 0
+y = 0
 
 # for gradual stop at traffic light
 is_stopping = False
@@ -99,10 +106,11 @@ is_sign_stopping = False
 sign_stopping_speed = 0.0
 sign_stopping_steer = 0.0
 sign_stop_start_time = None
-sign_stop_cooldown = 7.0  # 정지 후 재감지 무시 시간 (초)
+sign_stop_cooldown = 30.0  # 정지 후 재감지 무시 시간 (초)
 last_stop_end_time = 0.0  # 정지 종료 시간 저장용 전역 변수
 start_time_task3 = 0.0
-keep_mode_end_time = 0.0
+keep_mode_till_thistime = 0.0
+turning_timer = 0.0
 
 ema_alpha = 0.2  # 0~1 사이, 클수록 최신값 반영 큼
 use_ema_average = False
@@ -128,6 +136,59 @@ def reset_detection_flags():
     is_traffic_red = False
     is_vehicle = False
 
+# output_path = 'lane_prediction_output.mp4'
+# fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # 코덱 설정
+# fps = 30  # 프레임 속도
+# frame_size = (960, 540)  # 프레임 사이즈 (frame.shape[1], frame.shape[0])
+
+# out = cv2.VideoWriter(output_path, fourcc, fps, frame_size)
+
+# ==================================================
+
+
+
+now = datetime.now()
+log_dir = "log"
+os.makedirs(log_dir, exist_ok=True)  # 디렉토리 없으면 생성
+
+log_filename = f"log_{now.month:02}_{now.day:02}_{now.strftime('%H%M%S')}.txt"
+log_path = os.path.join(log_dir, log_filename)
+
+def save_log(log_path, mode, steering_cmd, forward_speed, L, R):
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    mode_str = {
+        KEEPING_WAYPOINT: "KEEPING_WAYPOINT",
+        TASK1: "TASK1 (TRAFFIC LIGHT)",
+        TASK2: "TASK2 (SIGN : STOP/SLOW)",
+        TASK3: "TASK3 (AVOID CAR)",
+        TASK4: "TASK4 (DIRECTION SIGN)"
+    }.get(mode, "UNKNOWN")
+
+    # flag 정보
+    if mode == TASK1:
+        flag_info = f"RED: {is_traffic_red}, GREEN: {is_traffic_green}"
+    elif mode == TASK2:
+        flag_info = f"STOP: {is_sign_stop}, SLOW: {is_sign_slow}"
+    elif mode == TASK3:
+        flag_info = f"VEHICLE: {is_vehicle}"
+    elif mode == TASK4:
+        flag_info = f"LEFT: {is_go_left}, RIGHT: {is_go_right}, STRAIGHT: {is_go_straight}"
+    else:
+        flag_info = ""
+
+    elapsed_time = time.time() - start_time
+
+    log_text = (
+        f"\n[{timestamp}] [MODE: {mode_str}]    {flag_info}\n"
+        f"\tTime :{elapsed_time:.2f}, [Steering: {steering_cmd:.5f}, Speed: {forward_speed:.2f} → L: {L:.2f}, R: {R:.2f} | {flag_info}]\n"
+        # f"countTask0 : {countTask0}, countTask1 : {countTask1}, countTask2 : {countTask2}, countTask3 : {countTask3}, countTask4 : {countTask4}\n"
+    )
+
+    with open(log_path, 'a') as f:
+        f.write(log_text)
+
+
+# ====================================================
 
 
 import PIL.Image
@@ -142,11 +203,11 @@ def preprocess(image: PIL.Image):
 
 
 cam = Camera(sensor_id=0, width=640, height=320)
-model_yolo = YOLO("ckpts/250519_n_detection.engine")
+model_yolo = YOLO("models/250521_n_detection.engine")
 classes = model_yolo.names
 model_alexnet = torchvision.models.alexnet(num_classes=2, dropout=0.0)
-# model_alexnet.load_state_dict(torch.load('ckpts/lane_best.pt'))
-model_alexnet.load_state_dict(torch.load('ckpts/250520_epoch124.pt'))
+# model_alexnet.load_state_dict(torch.load('models/lane_best.pt'))
+model_alexnet.load_state_dict(torch.load('models/250520_epoch124.pt'))
 model_alexnet = model_alexnet.to(device)
 
 base = BaseController('/dev/ttyUSB0', 115200)
@@ -169,34 +230,35 @@ def send_control_async(L, R):
 def clip(val, max_val):
     return max(min(val, max_val), -max_val)
 
-def update_vehicle_motion(steering, speed, mode=None):
-    steer_val = clip(steering, MAX_STEER)
-    speed_val = clip(speed, MAX_SPEED)
+# def update_vehicle_motion(steering, speed, mode=None):
+#     steer_val = clip(steering, MAX_STEER)
+#     speed_val = clip(speed, MAX_SPEED)
 
-    base_speed = abs(speed_val)
+#     base_speed = abs(speed_val)
 
 
-    left_ratio = 1.0 - steer_val
-    right_ratio = 1.0 + steer_val
+#     left_ratio = 1.0 - steer_val
+#     right_ratio = 1.0 + steer_val
 
-   # if left_ratio < 0:
-   #     left_ratio = 0
-   # elif right_ratio < 0:
-   #     right_ratio = 0
+#    # if left_ratio < 0:
+#    #     left_ratio = 0
+#    # elif right_ratio < 0:
+#    #     right_ratio = 0
 
-    L = base_speed * left_ratio + MINIMUM_MOTOR_SPEED
-    R = base_speed * right_ratio + MINIMUM_MOTOR_SPEED
+#     # L = base_speed * left_ratio + MINIMUM_MOTOR_SPEED
+#     # R = base_speed * right_ratio + MINIMUM_MOTOR_SPEED
+#     L = base_speed * left_ratio + MINIMUM_MOTOR_SPEED
+#     R = base_speed * right_ratio + MINIMUM_MOTOR_SPEED
 
-    L = clip(L, MAX_SPEED)
-    R = clip(R, MAX_SPEED)
+#     L = clip(L, MAX_SPEED)
+#     R = clip(R, MAX_SPEED)
 
-    if speed < 0:
-        L, R = -L, -R
+#     # if speed < 0:
+#     #     L, R = -L, -R
 
-    send_control_async(-L, -R)
+#     send_control_async(-L, -R)
 
-    print_debug_info(mode, steer_val, speed_val, L, R)
-
+#     print_debug_info(mode, steer_val, speed_val, L, R)
 def update_vehicle_motion_hoyan(steering, speed, mode=None):
 
     motor_minimum_input = 0.4
@@ -232,13 +294,15 @@ def update_vehicle_motion_hoyan(steering, speed, mode=None):
     send_control_async(-L, -R)
 
     print_debug_info(mode, steer_val, speed_val, L, R)
+    
+    return L, R
 
 
 def avoid_obstacles(is_vehicle_visible, vehicle_x, frame_width=960):
 
     # phase 0: 회피 방향 결정
     if avoid_state["phase"] == 0:
-        avoid_state["avoid_dir"] = -1 if vehicle_x > frame_width / 2 else 1
+        avoid_state["avoid_dir"] = -1 if vehicle_x < frame_width / 2 else 1
         avoid_state["phase"] = 1
         print(f"회피 시작: {'좌측' if avoid_state['avoid_dir']==-1 else '우측'} 방향으로 회피")
 
@@ -351,10 +415,12 @@ while running:
 
         # =============================================
         # yolo = detect
+        yolo_detect_start_time = time.time()
         result = model_yolo(frame)
         classes = result[0].boxes.cls.to("cpu").tolist()
         boxes = result[0].boxes.xywh.to("cpu").tolist()
         scores = result[0].boxes.conf.to("cpu").tolist()
+        print(f"YOLO Detect time: {time.time() - yolo_detect_start_time} sec")
         # =============================================
         # TODO:
         # change flag & mode -- according to yolo result maybe conf, bbox
@@ -384,21 +450,21 @@ while running:
             elif cls == TRAFFIC_GREEN and score > 0.5:
                 #TODO: bbox size - make def
                 is_traffic_green = True
-                if (time.time() - start_time) < 45.0:   # traffic 두번 나옴(task1 & 4)
+                if (time.time() - start_time) < 35.0:   # traffic 두번 나옴(task1 & 4)
                     next_mode = TASK1
                 else:
                     next_mode = TASK4
             elif cls == TRAFFIC_RED and score > 0.5:
                 is_traffic_red = True
-                if (time.time() - start_time) < 45.0:   # traffic 두번 나옴(task1 & 4)
+                if (time.time() - start_time) < 35.0:   # traffic 두번 나옴(task1 & 4)
                     next_mode = TASK1
                 else:
                     next_mode = TASK4
-            elif cls == VEHICLE and score > 0.5:
+            elif cls == VEHICLE and score > 0.75:
                 is_vehicle = True
                 next_mode = TASK3
 
-        if time.time() > keep_mode_end_time:
+        if time.time() > keep_mode_till_thistime:
             keep_mode = False
         if not keep_mode:
             mode = next_mode
@@ -420,9 +486,9 @@ while running:
     # print(f"\n\n")
     print(f"x: {x}, y: {y}")
 
-    cv2.circle(frame, (int(x), int(y)), 5, (0,0,255), -1)
-    image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
+    # cv2.circle(frame, (int(x), int(y)), 5, (0,0,255), -1)
+    # image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    # out.write(frame)
     # cv2.imshow("Lane Prediction", frame)
     # cv2.waitKey(1)
 
@@ -442,7 +508,6 @@ while running:
 
     
     steering_cmd = pid.steering
-    default_forward_speed = 0.18
     forward_speed = default_forward_speed
 
     # update_vehicle_motion(steering_cmd, -forward_speed)
@@ -490,12 +555,15 @@ while running:
             is_stopping = False
             stopping_speed = 0.0
             steering_cmd = steering_cmd
-            forward_speed = 0.18  # 정상 주행 속도로 복귀
+            forward_speed = default_forward_speed  # 정상 주행 속도로 복귀
     elif mode == TASK2:
         
         countTask2 += 1
+        stop_box_size = cal_box_size(SIGN_STOP, boxes, classes)
+        slow_box_size = cal_box_size(SIGN_SLOW, boxes, classes)
+
     #     # 3. 표지판 인식 정지
-        if is_sign_stop:
+        if is_sign_stop and stop_box_size > SIZE_STOP_SIGN:
             # 쿨다운 시간 지나지 않았으면 멈춤 무시
             if time.time() - last_stop_end_time < sign_stop_cooldown:
                 # 그냥 정상 주행 유지
@@ -521,24 +589,25 @@ while running:
                     if time.time() - sign_stop_start_time > 2.0:
                         is_sign_stopping = False
                         last_stop_end_time = time.time()  # 정지 종료 시각 기록
-                        forward_speed = 0.18  # 다시 주행 속도 복구
-        elif is_sign_slow:
+                        forward_speed = default_forward_speed  # 다시 주행 속도 복구
+        elif is_sign_slow and slow_box_size > SIZE_SLOW_SIGN:
             # TODO: make sure to check bbox size
-            box_size = cal_box_size(SIGN_SLOW, boxes, classes)
-            print(f"\tbox size: {box_size}")
-            if(box_size > 7500.0):
-                steering_cmd = steering_cmd
-                forward_speed = forward_speed * 0.8
+            # box_size = cal_box_size(SIGN_SLOW, boxes, classes)
+            # print(f"\tbox size: {box_size}")
+            # if(box_size > 7500.0):
+            steering_cmd = steering_cmd
+            forward_speed = forward_speed * 0.75
         
     elif mode == TASK3:
         
         countTask3 += 1
 
-        keep_mode = True
-        keep_mode_end_time = time.time() + 6
+
         # 처음 실행 시 시작 시간 기록
         if start_time_task3 is None:
             start_time_task3 = time.time()
+            keep_mode = True
+            keep_mode_till_thistime = start_time_task3 + 6
 
         elapsed_time = time.time() - start_time_task3
 
@@ -554,22 +623,81 @@ while running:
     elif mode == TASK4:
         
         countTask4 += 1
-    #     # 6. 방향 전환 (좌/우/직진)
+        # 신호등 판단
+        traffic_green_size = cal_box_size(TRAFFIC_GREEN, boxes, classes)
+        traffic_red_size = cal_box_size(TRAFFIC_RED, boxes, classes)
+
+        #     # 6. 방향 전환 (좌/우/직진)
+        dir_left_box_size = cal_box_size(GO_LEFT, boxes, classes)
+        dir_right_box_size = cal_box_size(GO_RIGHT, boxes, classes)
+        dir_straight_box_size = cal_box_size(GO_STRAIGHT, boxes, classes)
+
+        # if is_go_left and dir_left_box_size > SIZE_DIRECTION_SIGN:
+        # #         # 좌회전 로직
+        #     print(f"\tbox size: {dir_left_box_size}")
+
+        # elif is_go_right and dir_right_box_size > SIZE_DIRECTION_SIGN:
+        # #         # 우회전 로직
+        #     print(f"\tbox size: {dir_right_box_size}")
+
+        # elif is_go_straight and dir_straight_box_size > SIZE_DIRECTION_SIGN:
+        #     # TODO: test needed 
+        #     print(f"\tbox size: {dir_straight_box_size}")
+
+        if is_traffic_red and traffic_red_size > SIZE_TRAFFIC_LIGHT:
+            if not is_stopping:
+                is_stopping = True
+                stopping_speed = forward_speed
+                stopping_steer = steering_cmd
+
+            # 점진적으로 감속
+            stopping_steer, stopping_speed = stop_driving(stopping_steer, stopping_speed)
+            steering_cmd = stopping_steer
+            forward_speed = stopping_speed
+
+            # 완전히 멈추면 상태 유지
+            if abs(stopping_speed) < 0.03:
+                steering_cmd = 0.0
+                forward_speed = 0.0
+        # elif is_traffic_green and traffic_green_size > SIZE_TRAFFIC_LIGHT:
+            # 초록불일때 주행 시작
+        is_stopping = False
+        stopping_speed = 0.0
+
+        if turning_mode is not None:
+            if time.time() - turning_timer < 5.0:
+                if turning_mode == 'left':
+                    steering_cmd = 1.2
+                elif turning_mode == 'right':
+                    steering_cmd = -1.2
+                elif turning_mode == 'straight':
+                    steering_cmd = 0.0
+            # 속도는 그대로
+            forward_speed = forward_speed
+        else:
+            turning_mode = None 
+        #     # 6. 방향 전환 (좌/우/직진)
         dir_left_box_size = cal_box_size(GO_LEFT, boxes, classes)
         dir_right_box_size = cal_box_size(GO_RIGHT, boxes, classes)
         dir_straight_box_size = cal_box_size(GO_STRAIGHT, boxes, classes)
         if is_go_left and dir_left_box_size > SIZE_DIRECTION_SIGN:
-    #         # 좌회전 로직
-            steering_cmd = 1.0
+        #         # 좌회전 로직
+            steering_cmd = 1.5
             forward_speed = forward_speed
+            turning_mode = 'left'
+            turning_timer = time.time()
         elif is_go_right and dir_right_box_size > SIZE_DIRECTION_SIGN:
-    #         # 우회전 로직
-            steering_cmd = -1.0
+        #         # 우회전 로직
+            steering_cmd = -1.5
             forward_speed = forward_speed
+            turning_mode = 'right'
+            turning_timer = time.time()
         elif is_go_straight and dir_straight_box_size > SIZE_DIRECTION_SIGN:
             # TODO: test needed 
             steering_cmd = 0.0
             forward_speed = forward_speed
+            turning_mode = 'straight'
+            turning_timer = time.time()
 
 
     if(use_ema_average):
@@ -581,5 +709,7 @@ while running:
             ema_steering = ema_alpha * steering_cmd + (1 - ema_alpha) * ema_steering
         steering_cmd = ema_steering
 
-    update_vehicle_motion_hoyan(steering_cmd, -forward_speed, mode)
+    L, R = update_vehicle_motion_hoyan(steering_cmd, -forward_speed, mode)
+    save_log(log_path, mode, steering_cmd, forward_speed, L, R)
+
 
