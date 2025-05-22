@@ -2,6 +2,8 @@ from base_ctrl import BaseController
 import time
 from pynput import keyboard
 import threading
+import os
+from datetime import datetime, timedelta  # don't forget to import datetime
 
 # === Constants ===
 MAX_STEER = 2.0
@@ -68,6 +70,52 @@ def update_vehicle_motion(steering, speed):
 
 listener = keyboard.Listener(on_press=on_press, on_release=on_release)
 listener.start()
+
+
+now = datetime.now()
+log_dir = "log"
+os.makedirs(log_dir, exist_ok=True)  # 디렉토리 없으면 생성
+
+log_filename = f"log_{now.month:02}_{now.day:02}_{now.strftime('%H%M%S')}.txt"
+log_path = os.path.join(log_dir, log_filename)
+
+def save_log(log_path, mode, steering_cmd, forward_speed, L, R):
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    # mode_str = {
+    #     KEEPING_WAYPOINT: "KEEPING_WAYPOINT",
+    #     TASK1: "TASK1 (TRAFFIC LIGHT)",
+    #     TASK2: "TASK2 (SIGN : STOP/SLOW)",
+    #     TASK3: "TASK3 (AVOID CAR)",
+    #     TASK4: "TASK4 (DIRECTION SIGN)"
+    # }.get(mode, "UNKNOWN")
+
+    # flag 정보
+    # if mode == TASK1:
+    #     flag_info = f"RED: {is_traffic_red}, GREEN: {is_traffic_green}"
+    # elif mode == TASK2:
+    #     flag_info = f"STOP: {is_sign_stop}, SLOW: {is_sign_slow}"
+    # elif mode == TASK3:
+    #     flag_info = f"VEHICLE: {is_vehicle}"
+    # elif mode == TASK4:
+    #     flag_info = f"LEFT: {is_go_left}, RIGHT: {is_go_right}, STRAIGHT: {is_go_straight}"
+    # else:
+        # flag_info = ""
+
+    elapsed_time = time.time() - now
+
+    log_text = (
+        # f"\n[{timestamp}] [MODE: {mode_str}]    {flag_info}\n"
+        f"\tTime :{elapsed_time:.2f}, [Steering: {steering_cmd:.5f}, Speed: {forward_speed:.2f} → L: {L:.2f}, R: {R:.2f} " #| {flag_info}]\n"
+        # f"countTask0 : {countTask0}, countTask1 : {countTask1}, countTask2 : {countTask2}, countTask3 : {countTask3}, countTask4 : {countTask4}\n"
+    )
+
+    with open(log_path, 'a') as f:
+        f.write(log_text)
+
+
+# ====================================================
+
+
 
 try:
     while listener.running:
