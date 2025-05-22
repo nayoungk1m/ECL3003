@@ -1,0 +1,6 @@
+Task1, Task2 완료
+
+Task3 장애물 보이면 너무 많이 틀어버림, 방향을 잃어버림
+
+Task4 신호는 보는데, 표지판을 안봄
+    keeping_waypoint로 돌아감, 막아야함
