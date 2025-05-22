@@ -1,5 +1,5 @@
 import threading
-from ctrl.base_ctrl import BaseController
+from base_ctrl import BaseController
 
 base = BaseController('/dev/ttyUSB0', 115200)
 
