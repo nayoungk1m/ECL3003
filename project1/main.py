@@ -80,7 +80,7 @@ STEP_STEER = 0.2
 STEP_SPEED = 0.05
 MINIMUM_MOTOR_SPEED = 0.0
 MAX_MOTORINPUT = 0.7
-default_forward_speed = 0.185
+default_forward_speed = 0.19
 MOTOR_LR_CORRECTION = 1.04
 
 # bbox size macro  
@@ -106,7 +106,7 @@ is_avoiding = False
 direction_locked = False
 x = 0
 y = 0
-
+is_task3_executed = False
 # for gradual stop at traffic light
 is_stopping = False
 stopping_speed = 0.0
@@ -444,7 +444,7 @@ while running:
         for cls, box, score in zip(classes, boxes, scores):
             print(f"Class: {cls}, Box: {box}, Score: {score}")
 
-            if cls == VEHICLE and score > 0.7 and box[3] > 140.0:  # box[2] * box[3] is width * height
+            if cls == VEHICLE and score > 0.7 and box[3] > 145.0:  # box[2] * box[3] is width * height
                 # print(f"box size: {box[2] * box[3]}")
                 is_vehicle = True
                 vehicle_x = box[0]  # x 좌표
@@ -473,7 +473,7 @@ while running:
                 is_sign_stop = True
                 next_mode = TASK2
             elif not direction_locked:
-                if cls == GO_LEFT and score > 0.75:
+                if cls == GO_LEFT and score > 0.75 and box[0] >= 960 * 0.25 and box[0] <= 960 * 0.75:
                     is_go_left = True
                     next_mode = TASK4
                     direction_locked = True
@@ -509,21 +509,26 @@ while running:
         if not isinstance(detected_image, np.ndarray):
             detected_image = np.array(detected_image)
 
-        # 박스 정보(x, y, w, h) 영상에 표시
-        for cls, box, score in zip(classes, boxes, scores):
-            x, y, w, h = box
-            x1 = int(x - w / 2)
-            y1 = int(y - h / 2)
-            x2 = int(x + w / 2)
-            y2 = int(y + h / 2)
-            # 박스 그리기 (더 진한 파란색)
-            cv2.rectangle(detected_image, (x1, y1), (x2, y2), (255, 0, 0), 3)
-            # 텍스트 배경 사각형 추가 (흰색)
-            label = f"x:{int(x)} y:{int(y)} w:{int(w)} h:{int(h)}"
-            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-            cv2.rectangle(detected_image, (x1, y1 - th - 8), (x1 + tw, y1), (255, 255, 255), -1)
-            # 텍스트(진한 검정)로 표시
-            cv2.putText(detected_image, label, (x1, y1 - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+        # 박스 정보(x, y, w, h) 영상에 표시 및 파일 저장
+        with open("xywhy1.txt", "a") as xywh_file:
+            for cls, box, score in zip(classes, boxes, scores):
+                x, y, w, h = box
+                x1 = int(x - w / 2)
+                y1 = int(y - h / 2)
+                x2 = int(x + w / 2)
+                y2 = int(y + h / 2)
+                # 파일에 저장 (한 줄에 값들 공백 구분)
+                xywh_file.write(f"{cls} {x:.2f} {y:.2f} {w:.2f} {h:.2f} {x1} {y1} {x2} {y2} {score:.3f}\n")
+
+                # 박스 그리기 (더 진한 파란색)
+                cv2.rectangle(detected_image, (x1, y1), (x2, y2), (255, 0, 0), 3)
+                # 텍스트 배경 사각형 추가 (흰색)
+                label = f"x:{int(x)} y:{int(y)} w:{int(w)} h:{int(h)} y1:{y1} y2:{y2}"
+                (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                cv2.rectangle(detected_image, (x1, y1 - th - 8), (x1 + tw, y1), (255, 255, 255), -1)
+                # 텍스트(진한 검정)로 표시
+                cv2.putText(detected_image, label, (x1, y1 - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+
         out.write(detected_image)
         # cv2.imshow("Detection", detected_image)
         # cv2.waitKey(1)
@@ -639,64 +644,101 @@ while running:
         # TASK 3 들어오면 task2 진입 방지
         task2_done = True
         countTask3 += 1
+                
 
+            
 
-        # 처음 실행 시 시작 시간 기록
-        if vehicle_first_saw_time is None:
-            vehicle_first_saw_time = get_current_time()
-            emergency_mode = True
-            emergency_till_thistime = vehicle_first_saw_time + 6.0
+        if not is_task3_executed:
+            is_task3_executed = True
+            
+            # # 처음 실행 시 시작 시간 기록
+            # if vehicle_first_saw_time is None:
+            #     vehicle_first_saw_time = get_current_time()
+            #     emergency_mode = True
+            #     emergency_till_thistime = vehicle_first_saw_time + 6.0
+            
+            
+            # 각 단계별 [steering_cmd, speed, duration]을 2D array로 정의
+            
+
+            # 장애물 오른쪽에 있어서 왼쪽으로 회피할 때
+            if vehicle_x > 960 / 2:
+                maneuver_sequence = [
+                    [1.0, default_forward_speed, 1.0],    # 좌회전
+                    [0.0, default_forward_speed, 0.8],    # 직진
+                    [-1.0, default_forward_speed, 1.0],   # 우회전
+                    [0.0, default_forward_speed, 1.4],    # 직진
+                    [-0.6, default_forward_speed, 1.7],   # 우회전(조금 덜)
+                ]
+            # 장애물 왼쪽에 있어서 오른쪽으로 회피할 때
+            else:
+                maneuver_sequence = [
+                    [-1.0, default_forward_speed, 1.0],    # 우회전
+                    [0.0, default_forward_speed, 0.8],    # 직진
+                    [1.0, default_forward_speed, 1.0],   # 좌회전
+                    [0.0, default_forward_speed, 1.5],    # 직진
+                    [1.0, default_forward_speed, 0.5],   # 좌회전
+                    [0.0, default_forward_speed, 1.5],    # 직진
+                    [-0.6, default_forward_speed, 0.4],    # 우회전
+                ]
+
+            for steering_cmd, forward_speed, duration in maneuver_sequence:
+                start_time = time.time()
+                while time.time() - start_time < duration:
+                    update_vehicle_motion(steering_cmd, -forward_speed, mode)
+                    time.sleep(0.05)
+
 
         
-        # if is_vehicle:
-            # steering_cmd, forward_speed = avoid_obstacles(is_vehicle, vehicle_x)
-        # def avoid_obstacles(is_vehicle_visible, vehicle_x, frame_width=960):
+        # # if is_vehicle:
+        #     # steering_cmd, forward_speed = avoid_obstacles(is_vehicle, vehicle_x)
+        # # def avoid_obstacles(is_vehicle_visible, vehicle_x, frame_width=960):
 
-        # phase 0: 회피 방향 결정
-        if avoid_state["phase"] == 0:
-            avoid_state["avoid_dir"] = -1 if vehicle_x < 960 / 2 else 1   
-            avoid_state["phase"] = 1
-            # avoid_state["start_time"] = get_current_time()
-            print(f"회피 시작: {'좌측' if avoid_state['avoid_dir']==-1 else '우측'} 방향으로 회피")
+        # # phase 0: 회피 방향 결정
+        # if avoid_state["phase"] == 0:
+        #     avoid_state["avoid_dir"] = -1 if vehicle_x < 960 / 2 else 1   
+        #     avoid_state["phase"] = 1
+        #     # avoid_state["start_time"] = get_current_time()
+        #     print(f"회피 시작: {'좌측' if avoid_state['avoid_dir']==-1 else '우측'} 방향으로 회피")
 
-        # phase 1: 장애물이 안보일 때까지 계속 회피 주행
-        if avoid_state["phase"] == 1: # or time.time() - avoid_state["start_time"] < 1.0:
-            if is_vehicle:
-                steering_cmd = avoid_state["avoid_dir"] * 0.7
-                forward_speed = default_forward_speed  # 우회 시 조향, 감속
-            else:
-                if avoid_state["change_dir_time"] == None :
-                    avoid_state["change_dir_time"] = get_current_time()
-                    # avoid_state["change_dir_time"] = time.time()
+        # # phase 1: 장애물이 안보일 때까지 계속 회피 주행
+        # if avoid_state["phase"] == 1: # or time.time() - avoid_state["start_time"] < 1.0:
+        #     if is_vehicle:
+        #         steering_cmd = avoid_state["avoid_dir"] * 0.6
+        #         forward_speed = default_forward_speed  # 우회 시 조향, 감속
+        #     else:
+        #         if avoid_state["change_dir_time"] == None :
+        #             avoid_state["change_dir_time"] = get_current_time()
+        #             # avoid_state["change_dir_time"] = time.time()
 
-                if get_current_time() - avoid_state["change_dir_time"] < 1.0:
-                # if time.time() - avoid_state["change_dir_time"] < 1.0:
-                    steering_cmd = 0
-                else:
-                    avoid_state["phase"] = 2
-                    avoid_state["change_dir_time"] = get_current_time()
-                    # print("복귀 주행 시작")
-            # return avoid_state["avoid_dir"], default_forward_speed  # 우회 시 조향, 감속
+        #         if get_current_time() - avoid_state["change_dir_time"] < 1.0:
+        #         # if time.time() - avoid_state["change_dir_time"] < 1.0:
+        #             steering_cmd = 0
+        #         else:
+        #             avoid_state["phase"] = 2
+        #             avoid_state["change_dir_time"] = get_current_time()
+        #             # print("복귀 주행 시작")
+        #     # return avoid_state["avoid_dir"], default_forward_speed  # 우회 시 조향, 감속
 
-        # phase 2: 복귀 주행 (2초)
-        if avoid_state["phase"] == 2:
-            if get_current_time() - avoid_state["change_dir_time"] < 2.0:
-                steering_cmd = -0.5 * avoid_state["avoid_dir"]
-                forward_speed = default_forward_speed  # 반대 조향, 감속
-            else:
-                avoid_state["phase"] = 3
-                emergency_till_thistime = get_current_time()
-                # task3_done = True
-                print("원래 주행 모드 복귀")
-            # return -0.6 * avoid_state["avoid_dir"], default_forward_speed  # 반대 조향, 감속
-
-        # phase 3: 주행 복귀
-
-        # if avoid_state["phase"] == 3:
-        #     # flag를 바꾸고
+        # # phase 2: 복귀 주행 (2초)
+        # if avoid_state["phase"] == 2:
+        #     if get_current_time() - avoid_state["change_dir_time"] < 1.50:
+        #         steering_cmd = - avoid_state["avoid_dir"]
+        #         forward_speed = default_forward_speed  # 반대 조향, 감속
+        #     else:
+        #         avoid_state["phase"] = 3
+        #         emergency_till_thistime = get_current_time()
+        #         # task3_done = True
+        #         print("원래 주행 모드 복귀")
         #     # return -0.6 * avoid_state["avoid_dir"], default_forward_speed  # 반대 조향, 감속
-        #     # steering_cmd = -0.6 * avoid_state["avoid_dir"]
-        #     forward_speed = default_forward_speed  # 반대 조향, 감속
+
+        # # phase 3: 주행 복귀
+
+        # # if avoid_state["phase"] == 3:
+        # #     # flag를 바꾸고
+        # #     # return -0.6 * avoid_state["avoid_dir"], default_forward_speed  # 반대 조향, 감속
+        # #     # steering_cmd = -0.6 * avoid_state["avoid_dir"]
+        # #     forward_speed = default_forward_speed  # 반대 조향, 감속
 
 
     elif mode == TASK4:
@@ -763,7 +805,7 @@ while running:
                 forward_speed = forward_speed
                 # turning_mode = 'left'
                 turning_start_time = time.time()
-                while time.time() - turning_start_time < 1.25:
+                while time.time() - turning_start_time < 1.0:
                     update_vehicle_motion(steering_cmd, -forward_speed, mode)
                     time.sleep(0.05) 
                 while True:
@@ -778,7 +820,7 @@ while running:
                 forward_speed = forward_speed
                 # turning_mode = 'right'
                 turning_start_time = time.time()
-                while time.time() - turning_start_time < 1.25:
+                while time.time() - turning_start_time < 1.0:
                     update_vehicle_motion(steering_cmd, -forward_speed, mode)
                     time.sleep(0.05) 
                 while True:
