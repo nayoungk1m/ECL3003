@@ -96,6 +96,29 @@ def calculate_bbox_depth(disparity, bbox):
     average_depth = np.mean(calculate_depth(box_disparity))
     return average_depth
 
+def undistort_bbox(bbox_xywh):
+    x, y, w, h = bbox_xywh
+    # 네 꼭짓점 배열 (N,1,2) 형태
+    pts = np.array([
+        [x - w/2, y - h/2],
+        [x + w/2, y - h/2],
+        [x + w/2, y + h/2],
+        [x - w/2, y + h/2]
+    ], dtype=np.float32).reshape(-1,1,2)
+
+    # 왜곡 제거 + 정렬 → P1 좌표계
+    pts_rect = cv2.undistortPoints(
+        pts,
+        camera_matrix_left, dist_coeffs_left,
+        R=R1, P=P1      # ← stereoRectify 에서 받은 행렬
+    ).reshape(-1,2)
+
+    # 새 박스 좌표 계산
+    x_r, y_r = pts_rect[:,0].min(), pts_rect[:,1].min()
+    w_r = pts_rect[:,0].max() - x_r
+    h_r = pts_rect[:,1].max() - y_r
+    return [int(x_r + w_r/2), int(y_r + h_r/2), int(w_r), int(h_r)]
+
 ret,img_s = cam1.read()
 if ret:
     image_size = (img_s.shape[1],img_s.shape[0])
@@ -157,7 +180,7 @@ while running:
         normalized_disparity_map = cv2.normalize(disparity, None, 0.0, 1.0, cv2.NORM_MINMAX,cv2.CV_32F)
 
         colormap_image = cv2.applyColorMap(np.uint8(normalized_disparity_map * 255), cv2.COLORMAP_JET)
-        # print(f"Depth estimation time: {time.time() - depth_estimation_start_time} sec")
+        print(f"Depth estimation time: {time.time() - depth_estimation_start_time} sec")
 
     
     if frame_counter % FRAME_INTERVAL == 5:
@@ -168,14 +191,15 @@ while running:
         classes = result[0].boxes.cls.to("cpu").tolist()
         boxes = result[0].boxes.xywh.to("cpu").tolist()
         scores = result[0].boxes.conf.to("cpu").tolist()
-        # print(f"YOLO Detect time: {time.time() - yolo_detect_start_time} sec")
+        print(f"YOLO Detect time: {time.time() - yolo_detect_start_time} sec")
 
         for cls, box, score in zip(classes, boxes, scores):
             if cls != 7.0:  # Except vehicle
                 # Calculate bbox depth
-                average_depth = calculate_bbox_depth(disparity, box)
+                box_rect = undistort_bbox(box) 
+                average_depth = calculate_bbox_depth(disparity, box_rect)
                 print(f"Average depth: {average_depth:.2f} meters")
-                x, y, w, h = map(int, box)
+                x, y, w, h = map(int, box_rect)
                 # Draw bounding box on the colormap image
                 cv2.rectangle(colormap_image, (x - w // 2, y - h // 2), (x + w // 2, y + h // 2), (0, 255, 0), 2)
                 cv2.putText(colormap_image, f"Depth: {average_depth:.2f} m", (x - w // 2, y - h // 2 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)

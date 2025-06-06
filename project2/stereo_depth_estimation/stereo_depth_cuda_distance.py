@@ -11,10 +11,18 @@ import Camera.jetsonCam as jetCam
 def signal_handler(sig, frame):
   print('\nExiting...')
   cv2.destroyAllWindows()
-  cam1.stop()
-  cam2.stop()
-  cam1.release()
-  cam2.release()
+  print('OpenCV: destroyed all windows')
+  print('CUDA: releasing GPU resources')
+  # GPU 자원 해제
+  gpu_mat_l.release()
+  gpu_mat_r.release()
+  gpu_disparity.release()
+  stream.waitForCompletion()
+  cv2.cuda.resetDevice()
+
+  # 카메라 자원 해제
+  cam1.stop(); cam2.stop()
+  cam1.release(); cam2.release()
   sys.exit(0)
 
 signal.signal(signal.SIGINT, signal_handler)
@@ -76,6 +84,7 @@ def calculate_depth(disparity):
   """
   # 0으로 나누는 것을 방지하기 위해 작은 값 추가
   # 깊이 계산
+  disparity = disparity.astype(np.float32) * 16.0
   depth = (f_x * B) / (disparity + 1e-5)
   return depth
 
@@ -112,12 +121,35 @@ block_s = 17
 num_disp= 64
 
 # Create a StereoBM object
-stereo = cv2.StereoBM_create(numDisparities=num_disp, blockSize=block_s)
+stereo = cv2.cuda.createStereoBM(numDisparities=num_disp, blockSize=block_s)
 
 
 # Load rectification maps
 map1_left, map2_left = cv2.initUndistortRectifyMap( camera_matrix_left, dist_coeffs_left, R1, P1, image_size, cv2.CV_16SC2)
 map1_right, map2_right = cv2.initUndistortRectifyMap(camera_matrix_right, dist_coeffs_right, R2, P2, image_size, cv2.CV_16SC2)
+
+gpu_mat_l = cv2.cuda_GpuMat()
+gpu_mat_r = cv2.cuda_GpuMat()
+
+gpu_disparity = cv2.cuda_GpuMat()
+stream = cv2.cuda_Stream()
+
+def sync_bm_params(bm):
+    bm.setPreFilterType(cv2.STEREO_BM_PREFILTER_XSOBEL)  # CPU 기본값과 맞춤
+    bm.setTextureThreshold(10)
+    bm.setUniquenessRatio(15)
+    bm.setPreFilterCap(31)          # CPU·CUDA 동일
+    bm.setSpeckleWindowSize(0)      # 필요하면 동일하게 조정
+    bm.setSpeckleRange(0)
+    return bm
+
+# CPU
+cpu_bm = cv2.StereoBM_create(num_disp, block_s)
+sync_bm_params(cpu_bm)
+
+# CUDA
+gpu_bm = cv2.cuda.createStereoBM(num_disp, block_s)
+sync_bm_params(gpu_bm)
 
 while True:
   # Read stereo images
@@ -129,12 +161,16 @@ while True:
   rectified_left = cv2.remap(image_left, map1_left, map2_left, cv2.INTER_LINEAR)
   rectified_right = cv2.remap(image_right, map1_right, map2_right, cv2.INTER_LINEAR)
 
+  gpu_mat_l.upload(rectified_left) 
+  gpu_mat_r.upload(rectified_right)
+
   # Convert images to grayscale
-  gray_left = cv2.cvtColor(rectified_left, cv2.COLOR_BGR2GRAY)
-  gray_right = cv2.cvtColor(rectified_right, cv2.COLOR_BGR2GRAY)
+  gray_left = cv2.cuda.cvtColor(gpu_mat_l, cv2.COLOR_BGR2GRAY)
+  gray_right = cv2.cuda.cvtColor(gpu_mat_r, cv2.COLOR_BGR2GRAY)
 
   # Compute disparity map
-  disparity = stereo.compute(gray_left, gray_right)
+  gpu_disparity = stereo.compute(gray_left, gray_right, stream=stream)
+  disparity = gpu_disparity.download()
 
   # Calculate depth map
   depth_map = calculate_depth(disparity.astype(np.float32))
@@ -184,10 +220,26 @@ while True:
     print("disparity:"+str(num_disp))
     stereo.setNumDisparities(num_disp)
 
+# cv2.destroyAllWindows()
+# cam1.stop()
+# cam2.stop()
+# cam1.release()
+# cam2.release()
+
+print('\nExiting...')
 cv2.destroyAllWindows()
+print('OpenCV: destroyed all windows')
+print('CUDA: releasing GPU resources')
+# GPU 자원 해제
+gpu_mat_l.release()
+gpu_mat_r.release()
+gpu_disparity.release()
+stream.waitForCompletion()
+cv2.cuda.resetDevice()
+
+# 카메라 자원 해제
 cam1.stop()
 cam2.stop()
 cam1.release()
 cam2.release()
-
-
+sys.exit(0)
