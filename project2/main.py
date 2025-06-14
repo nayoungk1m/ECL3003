@@ -67,7 +67,7 @@ Kp_s = 0.005
 Ki_s = 0.0
 Kd_s = 0.0
 
-Kp_d = 0.4
+Kp_d = 0.8
 Ki_d = 0.0001
 Kd_d = 0.0
 # alpha = 0.5     # weight for steering
@@ -414,14 +414,14 @@ while running:
         for cls, box, score in zip(classes, boxes, scores):
             if cls == VEHICLE and score > 0.6:
 
+                # Calculate bbox depth
+                box_rect = undistort_bbox(box) 
                 x, y, w, h = map(int, box_rect)
                 roi_percentage = 0.15
                 if x <= 960 * roi_percentage or x >= 960 * (1 - roi_percentage):
                     continue
                 is_vehicle = True
 
-                # Calculate bbox depth
-                box_rect = undistort_bbox(box) 
                 average_depth = calculate_bbox_depth(disparity, box_rect)
                 print(f"Average depth: {average_depth:.2f} meters")
 
