@@ -21,16 +21,18 @@ from datetime import datetime
 
 # ================ constants ================ #
 
-FRAME_INTERVAL = 10
+# FRAME_INTERVAL = 10
+FRAME_INTERVAL = 4
 running = True
 frame_counter = -1
 
 # YOLO classes
-TRAFFIC_GREEN = 5.0
-TRAFFIC_RED = 6.0
-VEHICLE = 7.0  # 차량
-SIZE_TRAFFIC_LIGHT = 1500.0  # 신호등 크기 기준
-class_dict = {7.0: "vehicle", 9.0: "traffic_red", 10.0: "traffic_green"}
+NO_TRAFFIC_LIGHT = 0.0
+TRAFFIC_GREEN = 1.0
+TRAFFIC_RED = 2.0
+VEHICLE = 3.0  # 차량
+SIZE_TRAFFIC_LIGHT = 0.0  # 신호등 크기 기준
+class_dict = {3.0: "vehicle", 2.0: "traffic_red", 1.0: "traffic_green", 0.0: "no_traffic_light"}
 
 
 # detection flags
@@ -51,30 +53,32 @@ STEP_SPEED = 0.05
 MAX_MOTORINPUT = 0.7
 MOTOR_LR_CORRECTION = 1.04
 default_forward_speed = 0.19
-linear_acceleration = 0.0 
+linear_acceleration = 0.0
 forward_speed = 0.0
 
+MINIMUN_FORWARD_SPEED = 0.05
 # pid constants
 
 # Initialize PID controller
 # Using Ziegler-Nichols method
 Tu = 0.75
 Ku = 2.5
-Kp_s = 2.0 * Tu
+Kp_s = 0.005
 Ki_s = 0.0
 Kd_s = 0.0
-Kp_d = 0.005 # Kp_d = 0.6 * Ku    # opt value: 1.5
-Ki_d = 0.0 # Ki_d = 1.2 * Ku / Tu    # opt value: 3.0
-Kd_d = 0.0 # Kd_d = 0.075 * Ku * Tu    # opt value: 0.1875
-alpha = 0.5     # weight for steering
-beta = 0.5      # weight for throttle
-throttle_limits = [0.0, 0.25]  # Operating area: 전진 0.16, 후진 0.178
-lateral_pid = PID_LAT(Kp=Kp_d, Ki=Ki_d, Kd=Kd_d, setpoint=0, steering_limits=(-1.0, 1.0))
+
+Kp_d = 0.4
+Ki_d = 0.0001
+Kd_d = 0.0
+# alpha = 0.5     # weight for steering
+# beta = 0.5      # weight for throttle
+throttle_limits = [0.0, 0.5]  # Operating area: 전진 0.16, 후진 0.178
+lateral_pid = PID_LAT(Kp=Kp_s, Ki=Ki_s, Kd=Kd_s, setpoint=0, steering_limits=(-1.0, 1.0))
 longitude_pid = PID_LONG(Kp=Kp_d, Ki=Ki_d, Kd=Kd_d, setpoint=0, throttle_limits=throttle_limits)
 
 
 
-default_distance = 0.3
+default_distance = 0.2
 imu_ax_offset = None  # IMU ax offset
 DEBUG_DRIVEMODE = "normal"  # "defualt", "ACC", "STOP"
 # ================ DEBUG ================ #
@@ -278,8 +282,7 @@ def calculate_bbox_depth(disparity, bbox):
     :return: 평균 깊이
     """
     x, y, w, h = map(int, bbox)
-    w, h = w // 2, h // 2  # 바운딩 박스 크기를 절반으로 조정
-    box_disparity = disparity[y - h //2 :y + h//2, x - w//2:x + w//2]
+    box_disparity = disparity[y - h //8 :y + h//8, x - w//8:x + w//8]
     box_disparity = box_disparity[box_disparity > 0] # -16 제거
     average_depth = np.mean(calculate_depth(box_disparity))
     return average_depth
@@ -337,7 +340,7 @@ map1_right, map2_right = cv2.initUndistortRectifyMap(camera_matrix_right, dist_c
 
 # yolo - object detection
 
-model_yolo = YOLO("models/250521_n_detection.engine", verbose=False)
+model_yolo = YOLO("models/250610_n_detection.engine", verbose=False)
 start_time = time.time()
 
 # alexnet - lane following
@@ -355,7 +358,9 @@ model_alexnet = torchvision.models.alexnet(num_classes=2, dropout=0.0)
 model_alexnet.load_state_dict(torch.load('models/250607_alexnet_best.pt'))
 model_alexnet = model_alexnet.to(device)
 
-
+model_resnet = torchvision.models.resnet18(num_classes=2)
+model_resnet.load_state_dict(torch.load('models/250607_resnet18_last.pt'))
+model_resnet = model_resnet.to(device)
 
 while running:
     # ================ perception ================ #
@@ -376,7 +381,7 @@ while running:
         # ret, image_left = cam1.read()
         # ret, image_right = cam2.read()
         # if not ret: continue # 카메라랑 동시에 맞도록...
-        depth_estimation_start_time = time.time()
+        # depth_estimation_start_time = time.time()
         # Remap the images using rectification maps
         rectified_left = cv2.remap(image_left, map1_left, map2_left, cv2.INTER_LINEAR)
         rectified_right = cv2.remap(image_right, map1_right, map2_right, cv2.INTER_LINEAR)
@@ -397,8 +402,9 @@ while running:
     # if frame_counter % FRAME_INTERVAL == 0:
         # =============================================
         # yolo = detect
-        yolo_detect_start_time = time.time()
-        result = model_yolo(image_left, verbose=False)
+        # yolo_detect_start_time = time.time()
+        # result = model_yolo(image_left, verbose=False)
+        result = model_yolo(image_right, verbose=False)
         classes = result[0].boxes.cls.to("cpu").tolist()
         boxes = result[0].boxes.xywh.to("cpu").tolist()
         scores = result[0].boxes.conf.to("cpu").tolist()
@@ -406,7 +412,12 @@ while running:
 
         reset_detection_flags()
         for cls, box, score in zip(classes, boxes, scores):
-            if cls == VEHICLE and score > 0.5:
+            if cls == VEHICLE and score > 0.6:
+
+                x, y, w, h = map(int, box_rect)
+                roi_percentage = 0.15
+                if x <= 960 * roi_percentage or x >= 960 * (1 - roi_percentage):
+                    continue
                 is_vehicle = True
 
                 # Calculate bbox depth
@@ -414,16 +425,16 @@ while running:
                 average_depth = calculate_bbox_depth(disparity, box_rect)
                 print(f"Average depth: {average_depth:.2f} meters")
 
-                x, y, w, h = map(int, box_rect)
                 # Draw bounding box on the colormap image
                 cv2.rectangle(colormap_image, (x - w // 2, y - h // 2), (x + w // 2, y + h // 2), (0, 255, 0), 2)
+
                 cv2.putText(colormap_image, f"Depth: {average_depth:.2f} m", (x - w // 2, y - h // 2 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
                 
             
             if cls == TRAFFIC_RED and score > 0.5:
                 is_traffic_red = True
                 is_traffic_green = False
-
+                
             if cls == TRAFFIC_GREEN and score > 0.5:
                 is_traffic_green = True
                 is_traffic_red = False
@@ -468,11 +479,14 @@ while running:
     height, width, _ = image_right.shape
     frame_pil = PIL.Image.fromarray(image_right)
     with torch.no_grad():
+        lane_time = time.time()
         output = model_alexnet(preprocess(frame_pil)).detach().cpu().numpy()[0]  # (x,y)
+        # output = model_resnet(preprocess(frame_pil)).detach().cpu().numpy()[0]
+        # print(f"Alexnet inference time: {time.time() - lane_time} sec")
         x = (output[0] / 2 + 0.5) * width
         y = (output[1] / 2 + 0.5) * height
     # print(f"\n\n")
-    print(f"x: {x}, y: {y}")
+    # print(f"x: {x}, y: {y}")
 
     cv2.circle(image_right, (int(x), int(y)), 5, (0,0,255), -1)
     image_rgb = cv2.cvtColor(image_right, cv2.COLOR_BGR2RGB)
@@ -498,6 +512,7 @@ while running:
 
     # current_speed = cal_speed(linear_acceleration, imu_dt, forward_speed)
     # ================ planning & control ================ #
+    target_distance = default_distance + 0.1 + forward_speed*0.3  # 1.0초 거리 뒤를 따라감
     forward_speed = default_forward_speed
     steering_cmd = 0.0
   
@@ -512,7 +527,6 @@ while running:
 
     # current_speed = cal_speed(linear_acceleration, dt, forward_speed)
 
-    target_distance = default_distance + forward_speed * 0.75 # 1.0초 거리 뒤를 따라감
 
     # print(f"Error: {error:.2f} m")
 
@@ -522,14 +536,14 @@ while running:
     if abs(lateral_error) < 6.0:
         lateral_error = 0.0
 
-    lateral_pid.update_lat(output = lateral_error, dt=dt)
+    lateral_pid.update_lat(error = lateral_error, dt=dt)
     steering_cmd = lateral_pid.steering
     
     # =================  pid controller - longitudinal control ================= 
-    if is_vehicle:
+    if  is_vehicle and not np.isnan(average_depth): # (average_depth is not None) and 
         longitude_error = average_depth - target_distance
-        longitude_pid.update_long(output = longitude_error, dt=dt)
-        forward_speed = longitude_pid.throttle
+        longitude_pid.update_long(error = longitude_error, dt=dt)
+        forward_speed = longitude_pid.throttle + MINIMUN_FORWARD_SPEED
         DEBUG_DRIVEMODE = "ACC"
     else:
         forward_speed = default_forward_speed
@@ -543,8 +557,8 @@ while running:
     traffic_red_size = cal_box_size(TRAFFIC_RED, boxes, classes)
     if is_traffic_red and traffic_red_size > SIZE_TRAFFIC_LIGHT:
         # is_stopping = True
-        forward_speed = 0
-        steering_cmd = 0
+        forward_speed = 0.0
+        steering_cmd = 0.0
         DEBUG_DRIVEMODE = "STOP"
 
     # print(f"\ttraffic green size: {traffic_green_size}")
@@ -583,6 +597,13 @@ while running:
         f"Steer: {steering_cmd:.2f}",
         f"L: {L:.2f}, R: {R:.2f}"
     ]
+    # ACC 모드일 때 PID 값 추가
+    if DEBUG_DRIVEMODE == "ACC":
+        debug_texts.append(
+            f"PID(P:{longitude_pid.p_debug:.2f}, I:{longitude_pid.i_debug:.2f}, D:{longitude_pid.d_debug:.2f})"
+        )
+
+
     for i, txt in enumerate(debug_texts):
         cv2.putText(image_right, txt, (20, image_right.shape[0] - 20 - 25 * (len(debug_texts) - i - 1)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
@@ -591,8 +612,15 @@ while running:
         # Calculate bbox depth
         box_rect = undistort_bbox(box) 
         x, y, w, h = map(int, box_rect)
-        cv2.rectangle(image_right, (x - w // 2, y - h // 2), (x + w // 2, y + h // 2), (0, 255, 0), 2)
-        cv2.putText(image_right, f"Cls: {class_dict[cls]} m", (x - w // 2, y - h // 2 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        box_size = w * h
+        if score > 0.6:
+            cv2.rectangle(image_right, (x - w // 2, y - h // 2), (x + w // 2, y + h // 2), (0, 255, 0), 2)
+            # Draw bounding box for depth estimation
+            cv2.rectangle(image_right, (x - w // 8, y - h // 8), (x + w // 8, y + h // 8), (255, 0, 0), 2)
+
+        # 클래스명 + box size 표시
+        label = f"{class_dict[cls]} ({box_size})"
+        cv2.putText(image_right, label, (x - w // 2, y - h // 2 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
     # ======== 영상 저장 (매 3프레임) ========
     if frame_counter % 3 == 0:

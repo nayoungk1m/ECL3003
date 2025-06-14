@@ -149,7 +149,7 @@ map1_right, map2_right = cv2.initUndistortRectifyMap(camera_matrix_right, dist_c
 
 
 
-model_yolo = YOLO("models/250521_n_detection.engine", verbose=False)
+model_yolo = YOLO("models/250610_n_detection.engine", verbose=False)
 start_time = time.time()
 while running:
 # ================ perception ================ #
@@ -161,8 +161,8 @@ while running:
     if not ret_right: continue
     frame_counter += 1
 
-    if frame_counter % 30 == 0:
-        print(f"Frame: {frame_counter}, Time: {time.time() - start_time:.4f} sec")
+    # if frame_counter % 30 == 0:
+    #     print(f"Frame: {frame_counter}, Time: {time.time() - start_time:.4f} sec")
 
     if frame_counter % FRAME_INTERVAL == 0:
         # # Read stereo images
@@ -184,7 +184,7 @@ while running:
         normalized_disparity_map = cv2.normalize(disparity, None, 0.0, 1.0, cv2.NORM_MINMAX,cv2.CV_32F)
 
         colormap_image = cv2.applyColorMap(np.uint8(normalized_disparity_map * 255), cv2.COLORMAP_JET)
-        # print(f"Depth estimation time: {time.time() - depth_estimation_start_time} sec")
+        print(f"Depth estimation time: {time.time() - depth_estimation_start_time} sec")
 
     
     if frame_counter % FRAME_INTERVAL == 5:
@@ -195,7 +195,7 @@ while running:
         classes = result[0].boxes.cls.to("cpu").tolist()
         boxes = result[0].boxes.xywh.to("cpu").tolist()
         scores = result[0].boxes.conf.to("cpu").tolist()
-        # print(f"YOLO Detect time: {time.time() - yolo_detect_start_time} sec")
+        print(f"YOLO Detect time: {time.time() - yolo_detect_start_time} sec")
 
         for cls, box, score in zip(classes, boxes, scores):
             if cls != 7.0:  # Except vehicle
