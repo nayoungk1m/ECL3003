@@ -22,7 +22,7 @@ from datetime import datetime
 # ================ constants ================ #
 
 # FRAME_INTERVAL = 10
-FRAME_INTERVAL = 4
+FRAME_INTERVAL = 3
 running = True
 frame_counter = -1
 
@@ -39,6 +39,8 @@ class_dict = {3.0: "vehicle", 2.0: "traffic_red", 1.0: "traffic_green", 0.0: "no
 is_traffic_red = False
 is_traffic_green = False
 is_vehicle = False
+
+ebs = False  # Emergency Brake System
 
 # SCC constants
 current_speed = 0
@@ -194,10 +196,12 @@ def cal_box_size(target_class, result_xywh, result_cls):
 def reset_detection_flags():
     global is_traffic_green, is_traffic_red
     global is_vehicle
+    global ebs
 
     is_traffic_green = False
     is_traffic_red = False
     is_vehicle = False
+    ebs = False
 
 # ================ Cameras ================ #
 
@@ -340,7 +344,7 @@ map1_right, map2_right = cv2.initUndistortRectifyMap(camera_matrix_right, dist_c
 
 # yolo - object detection
 
-model_yolo = YOLO("models/250610_n_detection.engine", verbose=False)
+model_yolo = YOLO("models/250615_n_detection.engine", verbose=False)
 start_time = time.time()
 
 # alexnet - lane following
@@ -420,11 +424,15 @@ while running:
                 roi_percentage = 0.15
                 if x <= 960 * roi_percentage or x >= 960 * (1 - roi_percentage):
                     continue
+
                 is_vehicle = True
 
                 average_depth = calculate_bbox_depth(disparity, box_rect)
                 print(f"Average depth: {average_depth:.2f} meters")
 
+                if w*h >= 120000.0: # and score > 0.7:
+                    # average_depth = 0.1  # 너무 큰 박스는 무시
+                    ebs = True
                 # Draw bounding box on the colormap image
                 cv2.rectangle(colormap_image, (x - w // 2, y - h // 2), (x + w // 2, y + h // 2), (0, 255, 0), 2)
 
@@ -569,7 +577,11 @@ while running:
 
 
 
-
+    if ebs:
+        forward_speed = 0.0
+        DEBUG_DRIVEMODE = "EBS"
+    if forward_speed < 0.0:
+        forward_speed = 0.0
     # send control to vehicle
     L, R = update_vehicle_motion(steering_cmd, -forward_speed)
 
@@ -618,9 +630,10 @@ while running:
             # Draw bounding box for depth estimation
             cv2.rectangle(image_right, (x - w // 8, y - h // 8), (x + w // 8, y + h // 8), (255, 0, 0), 2)
 
+
         # 클래스명 + box size 표시
-        label = f"{class_dict[cls]} ({box_size})"
-        cv2.putText(image_right, label, (x - w // 2, y - h // 2 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        label = f"{class_dict[cls]} ({box_size}) ({score:.2f})"
+        cv2.putText(image_right, label, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
     # ======== 영상 저장 (매 3프레임) ========
     if frame_counter % 3 == 0:
