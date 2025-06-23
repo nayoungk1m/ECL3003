@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 import time
-from stereo_depth_estimation.StereoCameraCalibrate.Stereo_Calib_Camera import getStereoCameraParameters, getStereoSingleCameraParameters
+from StereoCameraCalibrate.Stereo_Calib_Camera import getStereoCameraParameters, getStereoSingleCameraParameters
 import signal
 import sys
 import Camera.jetsonCam as jetCam 
@@ -145,11 +145,7 @@ map1_left, map2_left = cv2.initUndistortRectifyMap( camera_matrix_left, dist_coe
 map1_right, map2_right = cv2.initUndistortRectifyMap(camera_matrix_right, dist_coeffs_right, R2, P2, image_size, cv2.CV_16SC2)
 
 
-
-
-
-
-model_yolo = YOLO("models/250610_n_detection.engine", verbose=False)
+model_yolo = YOLO("../models/250610_n_detection.engine", verbose=False)
 start_time = time.time()
 while running:
 # ================ perception ================ #
@@ -161,14 +157,7 @@ while running:
     if not ret_right: continue
     frame_counter += 1
 
-    # if frame_counter % 30 == 0:
-    #     print(f"Frame: {frame_counter}, Time: {time.time() - start_time:.4f} sec")
-
     if frame_counter % FRAME_INTERVAL == 0:
-        # # Read stereo images
-        # ret, image_left = cam1.read()
-        # ret, image_right = cam2.read()
-        # if not ret: continue # 카메라랑 동시에 맞도록...
         depth_estimation_start_time = time.time()
         # Remap the images using rectification maps
         rectified_left = cv2.remap(image_left, map1_left, map2_left, cv2.INTER_LINEAR)

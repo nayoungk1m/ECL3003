@@ -7,7 +7,6 @@ import signal
 import sys
 import Camera.jetsonCam as jetCam 
 import os
-# from pid.pidcontroller import SteeringPIDController
 from pid.pidcontroller import PID_LAT, PID_LONG
 from datetime import datetime, timedelta  # don't forget to import datetime
 import time
@@ -39,8 +38,7 @@ class_dict = {3.0: "vehicle", 2.0: "traffic_red", 1.0: "traffic_green", 0.0: "no
 is_traffic_red = False
 is_traffic_green = False
 is_vehicle = False
-
-ebs = False  # Emergency Brake System
+ebs = False  # Emergency Brake System (Autonomous Emergency Braking System)
 
 # SCC constants
 current_speed = 0
@@ -57,10 +55,9 @@ MOTOR_LR_CORRECTION = 1.04
 default_forward_speed = 0.19
 linear_acceleration = 0.0
 forward_speed = 0.0
-
 MINIMUN_FORWARD_SPEED = 0.05
-# pid constants
 
+# pid constants
 # Initialize PID controller
 # Using Ziegler-Nichols method
 Tu = 0.75
@@ -72,8 +69,6 @@ Kd_s = 0.0
 Kp_d = 0.8
 Ki_d = 0.0001
 Kd_d = 0.0
-# alpha = 0.5     # weight for steering
-# beta = 0.5      # weight for throttle
 throttle_limits = [0.0, 0.5]  # Operating area: 전진 0.16, 후진 0.178
 lateral_pid = PID_LAT(Kp=Kp_s, Ki=Ki_s, Kd=Kd_s, setpoint=0, steering_limits=(-1.0, 1.0))
 longitude_pid = PID_LONG(Kp=Kp_d, Ki=Ki_d, Kd=Kd_d, setpoint=0, throttle_limits=throttle_limits)
@@ -83,37 +78,7 @@ longitude_pid = PID_LONG(Kp=Kp_d, Ki=Ki_d, Kd=Kd_d, setpoint=0, throttle_limits=
 default_distance = 0.2
 imu_ax_offset = None  # IMU ax offset
 DEBUG_DRIVEMODE = "normal"  # "defualt", "ACC", "STOP"
-# ================ DEBUG ================ #
-
-# 쓸꺼면 수정 필요
-codestarttime = datetime.now()
-log_dir = "log"
-os.makedirs(log_dir, exist_ok=True)  # 디렉토리 없으면 생성
-
-log_filename = f"log_{codestarttime.month:02}_{codestarttime.day:02}_{codestarttime.strftime('%H%M%S')}.txt"
-log_path = os.path.join(log_dir, log_filename)
-
 classes, boxes, scores = None, None, None  # 초기화
-
-def debug_print_save(mode, steering_cmd, forward_speed, L, R):
-
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-   
-
-    elapsed_time = time.time() - start_time
-
-    # log_text = (
-    #     f"\n[{timestamp}] [MODE: {mode_str}]    {flag_info}\n"
-    #     f"\tTime :{elapsed_time:.2f}, [X : {x}], [Steering: {steering_cmd:.5f}, Speed: {forward_speed:.2f} → L: {L:.2f}, R: {R:.2f} | {flag_info}]\n"
-    #     f"\t emergency_mode: {emergency_mode}\n"
-    #     f"avoid_dir: {avoid_state['avoid_dir']}, phase: {avoid_state['phase']}, change_dir_time: {avoid_state['change_dir_time']}\n"
-
-    #     # f"countTask0 : {countTask0}, countTask1 : {countTask1}, countTask2 : {countTask2}, countTask3 : {countTask3}, countTask4 : {countTask4}\n"
-    # )
-
-    # with open(log_path, 'a') as f:
-    #     f.write(log_text)
-    # print(log_text)
 
 # ================ Video Writer for Debugging ================ #
 video_save_dir = "./log"
@@ -139,8 +104,6 @@ def stop_driving(steer, speed):
     #     return 0.0, 0.0
     # return steer * 0.5, speed * 0.5
     return 0.0, 0.0
-    # cam.cap[0].release()
-# atexit.register(stop_driving) # 터미널 시그널로 종료시 수행
 
 base = BaseController('/dev/ttyUSB0', 115200)
 
@@ -177,8 +140,6 @@ def update_vehicle_motion(steering, speed, mode=None):
 
     # left right 보정, ratio
     send_control_async(-L * MOTOR_LR_CORRECTION, -R)
-
-    # debug_print_save(mode, steer_val, speed_val, -L, -R)
     
     return -L, -R
 
@@ -340,14 +301,12 @@ map1_left, map2_left = cv2.initUndistortRectifyMap( camera_matrix_left, dist_coe
 map1_right, map2_right = cv2.initUndistortRectifyMap(camera_matrix_right, dist_coeffs_right, R2, P2, image_size, cv2.CV_16SC2)
 
 
-
-
-# yolo - object detection
+# yolo -> object detection
 
 model_yolo = YOLO("models/250615_n_detection.engine", verbose=False)
 start_time = time.time()
 
-# alexnet - lane following
+# alexnet -> lane following
 
 import PIL.Image
 from cnn.center_dataset import TEST_TRANSFORMS
@@ -380,13 +339,6 @@ while running:
 
     if frame_counter % FRAME_INTERVAL == 0:
         # stereo depth estimation
-
-        # # Read stereo images
-        # ret, image_left = cam1.read()
-        # ret, image_right = cam2.read()
-        # if not ret: continue # 카메라랑 동시에 맞도록...
-        # depth_estimation_start_time = time.time()
-        # Remap the images using rectification maps
         rectified_left = cv2.remap(image_left, map1_left, map2_left, cv2.INTER_LINEAR)
         rectified_right = cv2.remap(image_right, map1_right, map2_right, cv2.INTER_LINEAR)
 
@@ -405,9 +357,6 @@ while running:
     
     # if frame_counter % FRAME_INTERVAL == 0:
         # =============================================
-        # yolo = detect
-        # yolo_detect_start_time = time.time()
-        # result = model_yolo(image_left, verbose=False)
         result = model_yolo(image_right, verbose=False)
         classes = result[0].boxes.cls.to("cpu").tolist()
         boxes = result[0].boxes.xywh.to("cpu").tolist()
@@ -431,7 +380,6 @@ while running:
                 print(f"Average depth: {average_depth:.2f} meters")
 
                 if w*h >= 120000.0: # and score > 0.7:
-                    # average_depth = 0.1  # 너무 큰 박스는 무시
                     ebs = True
                 # Draw bounding box on the colormap image
                 cv2.rectangle(colormap_image, (x - w // 2, y - h // 2), (x + w // 2, y + h // 2), (0, 255, 0), 2)
@@ -447,54 +395,14 @@ while running:
                 is_traffic_green = True
                 is_traffic_red = False
 
-        # detected_image = result[0].plot()
-        # if not isinstance(detected_image, np.ndarray):
-        #     detected_image = np.array(detected_image)
-    
-    
-        # com_img=  cv2.hconcat([detected_image, colormap_image])
-        # com_img = cv2.resize(com_img, (0, 0), fx=0.6, fy=0.6)
-
-        # # ======== 디버깅 정보 오버레이 ========
-        # # Alexnet inference 점 (빨간색)
-        # cv2.circle(com_img, (int(x), int(y)), 5, (0, 0, 255), -1)
-
-        # # 우측 하단 텍스트
-        # debug_texts = [
-        #     f"MODE: {DEBUG_DRIVEMODE}",
-        #     f"Avg Depth: {average_depth:.2f} m" if 'average_depth' in locals() else "Avg Depth: N/A",
-        #     f"Target Dist: {target_distance:.2f} m",
-        #     f"Speed: {forward_speed:.2f}",
-        #     f"Steer: {steering_cmd:.2f}",
-        #     f"L: {L:.2f}, R: {R:.2f}"
-        # ]
-        # for i, txt in enumerate(debug_texts):
-        #     cv2.putText(com_img, txt, (20, com_img.shape[0] - 20 - 25 * (len(debug_texts) - i - 1)),
-        #                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-
-        # # ======== 영상 저장 (매 3프레임) ========
-        # if frame_counter % 3 == 0:
-        #     if video_writer is None:
-        #         fourcc = cv2.VideoWriter_fourcc(*'XVID')
-        #         video_writer = cv2.VideoWriter(video_path, fourcc, video_fps, video_size)
-        #     video_writer.write(com_img)
-
-        # cv2.imshow('YOLO - depth map', com_img)
-        # cv2.waitKey(1)
-
-    # alexnet = waypoints
-    #
+    # alexnet -> waypoints
     height, width, _ = image_right.shape
     frame_pil = PIL.Image.fromarray(image_right)
     with torch.no_grad():
         lane_time = time.time()
         output = model_alexnet(preprocess(frame_pil)).detach().cpu().numpy()[0]  # (x,y)
-        # output = model_resnet(preprocess(frame_pil)).detach().cpu().numpy()[0]
-        # print(f"Alexnet inference time: {time.time() - lane_time} sec")
         x = (output[0] / 2 + 0.5) * width
         y = (output[1] / 2 + 0.5) * height
-    # print(f"\n\n")
-    # print(f"x: {x}, y: {y}")
 
     cv2.circle(image_right, (int(x), int(y)), 5, (0,0,255), -1)
     image_rgb = cv2.cvtColor(image_right, cv2.COLOR_BGR2RGB)
@@ -525,7 +433,7 @@ while running:
     steering_cmd = 0.0
   
     # 앞차 따라가기(IMU, average_depth 사용)
-    # TODO: use & make SCC
+    # use & make SCC
     # use linear acceleration of imu
     # use average_depth of depth estimation
 
@@ -534,9 +442,6 @@ while running:
     prev_time = current_time
 
     # current_speed = cal_speed(linear_acceleration, dt, forward_speed)
-
-
-    # print(f"Error: {error:.2f} m")
 
     # ================= pid controller - lateral control ================= 
     center_x = 400 # TODO: CENTER ASSUME!!!!!
@@ -568,13 +473,6 @@ while running:
         forward_speed = 0.0
         steering_cmd = 0.0
         DEBUG_DRIVEMODE = "STOP"
-
-    # print(f"\ttraffic green size: {traffic_green_size}")
-    # print(f"\ttraffic red size: {traffic_red_size}")
-
-    # elif is_traffic_green and traffic_green_size > (SIZE_TRAFFIC_LIGHT - 100.0):
-        # forward_speed = default_forward_speed  # 정상 주행 속도로 복귀
-
 
 
     if ebs:
@@ -644,9 +542,6 @@ while running:
             image_right = np.array(image_right)
         print(image_right.shape)
         video_writer.write(image_right)
-
-    # cv2.imshow('YOLO - depth map', com_img)
-    # cv2.waitKey(1)
 
     # cv2.imshow("Lane Prediction", image_right)
     # cv2.waitKey(1)

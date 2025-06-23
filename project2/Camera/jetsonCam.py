@@ -64,10 +64,7 @@ class jetsonCam:
                     self.frame=frame
             except RuntimeError:
                 print("Could not read image from camera")
-        # FIX ME - stop and cleanup thread
-        # Something bad happened
         
-
     def read(self):
         with self.read_lock:
             frame = self.frame.copy()

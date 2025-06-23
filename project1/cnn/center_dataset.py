@@ -7,7 +7,7 @@ import torch.utils.data
 import torchvision.transforms as transforms
 
 TRAIN_TRANSFORMS = transforms.Compose([
-    # transforms.ColorJitter(0.2, 0.2, 0.2, 0.2),
+    transforms.ColorJitter(0.2, 0.2, 0.2, 0.2),
     transforms.Resize((224, 224)),    
     transforms.ToTensor(),
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])

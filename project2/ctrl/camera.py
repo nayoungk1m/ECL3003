@@ -87,16 +87,7 @@ class Camera:
                 self._height,
             )
         )
-    
-    # def set_model(self, model: YOLO, classes: dict) -> None:
-    #     """
-    #     Set a YOLO model
-    #     """
-    #     self.model = model
-    #     self.classes = classes                
-    #     self.colors = np.random.randint(0,255,size=(len(self.classes), 3))
-    #     self.colors = self.colors.astype(np.uint8)
-    #     self.visualize_pred_fn = lambda img, pred: draw_boxes(img, pred, self.classes, self.colors)
+
 
     def run(self) -> None:
         """

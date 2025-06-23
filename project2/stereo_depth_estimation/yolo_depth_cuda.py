@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 import time
-from stereo_depth_estimation.StereoCameraCalibrate.Stereo_Calib_Camera import getStereoCameraParameters, getStereoSingleCameraParameters
+from StereoCameraCalibrate.Stereo_Calib_Camera import getStereoCameraParameters, getStereoSingleCameraParameters
 import signal
 import sys
 import Camera.jetsonCam as jetCam 
@@ -178,7 +178,7 @@ sync_bm_params(cpu_bm)
 gpu_bm = cv2.cuda.createStereoBM(num_disp, block_s)
 sync_bm_params(gpu_bm)
 
-model_yolo = YOLO("models/250521_n_detection.engine", verbose=False)
+model_yolo = YOLO("../models/250521_n_detection.engine", verbose=False)
 
 while running:
 # ================ perception ================ #
@@ -190,10 +190,6 @@ while running:
     if not ret: continue # 카메라랑 동시에 맞도록...
 
     if frame_counter % FRAME_INTERVAL == 0:
-        # # Read stereo images
-        # ret, image_left = cam1.read()
-        # ret, image_right = cam2.read()
-        # if not ret: continue # 카메라랑 동시에 맞도록...
         depth_estimation_start_time = time.time()
         # Remap the images using rectification maps
         rectified_left = cv2.remap(image_left, map1_left, map2_left, cv2.INTER_LINEAR)
