@@ -68,7 +68,7 @@ Project 2 was an open-topic assignment, and we chose to implement a simplified *
 
 ### Planning
 - **Adaptive Cruise Control (ACC)**: Maintain a safe following distance using the following formula:
-$$Target\; distance = default\;distance + 0.3 × current\; speed$$
+$$Target\ distance = default\ distance + 0.3 × current\ speed$$
 - **Autonomous Emergency Braking (AEB)**: Execute **emergency stop** if front vehicle is too close
 
 ### Control
