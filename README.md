@@ -64,7 +64,7 @@ Project 2 was an open-topic assignment, and we chose to implement a simplified *
 - **Stereo Depth Estimation**: Using the disparity between stereo images, calculate **depth** of the detected vehicle in real-time
 - **ResNet18**: Extract the center line of the lane and returns it as a series of waypoints
 
-  → ResNet18 was chosen over Alexㅜet due to its **better generalization performance**, allowing more robust lane feature extraction in various road conditions.
+  → ResNet18 was chosen over Alexnet due to its **better generalization performance**, allowing more robust lane feature extraction in various road conditions.
 
 ### Planning
 - **Adaptive Cruise Control (ACC)**: Maintain a safe following distance using the following formula:
